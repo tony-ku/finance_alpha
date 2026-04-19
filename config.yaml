@@ -9,17 +9,29 @@ universe:
     - MSFT
     - NVDA
 
-portfolio: []
-# Example:
-# portfolio:
-#   - symbol: AAPL
-#     shares: 10
-#     cost_basis: 150.00
-#     account: Taxable
-#   - symbol: MSFT
-#     shares: 5
-#     cost_basis: 320.00
-#     account: IRA
+portfolios:
+  - name: Sample Portfolio
+    positions:
+      - symbol: AMD
+        shares: 10
+        cost_basis: 120.00
+        account: Taxable
+      - symbol: NVDA
+        shares: 5
+        cost_basis: 400.00
+        account: Taxable
+      - symbol: INTC
+        shares: 20
+        cost_basis: 30.00
+        account: Taxable
+      - symbol: GOOGL
+        shares: 8
+        cost_basis: 140.00
+        account: Taxable
+      - symbol: AAPL
+        shares: 15
+        cost_basis: 175.00
+        account: Taxable
 
 sa_rss_feeds:
   - name: SA Latest Articles

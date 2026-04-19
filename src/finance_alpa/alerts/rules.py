@@ -53,7 +53,7 @@ def _fire(
 def _scope_symbols(scope: str) -> set[str]:
     cfg = load_app_config()
     if scope == "portfolio":
-        return {p.symbol for p in cfg.portfolio}
+        return {p.symbol for p in cfg.all_positions}
     if scope == "watchlist":
         return set(cfg.universe.watchlist)
     return set(cfg.all_symbols())

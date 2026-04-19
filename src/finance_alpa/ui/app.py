@@ -12,7 +12,6 @@ from finance_alpa.config import load_app_config
 from finance_alpa.db import connect, init_db
 from finance_alpa.ui._theme import bootstrap, safe_link_url
 
-st.set_page_config(page_title="finance_alpa", layout="wide")
 init_db()
 bootstrap()
 

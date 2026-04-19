@@ -10,6 +10,7 @@ from .config import DATA_DIR, DB_PATH, RAW_EMAILS_DIR
 
 SCHEMA = """
 CREATE SEQUENCE IF NOT EXISTS alerts_seq;
+CREATE SEQUENCE IF NOT EXISTS portfolios_seq;
 
 CREATE TABLE IF NOT EXISTS tickers (
     symbol VARCHAR PRIMARY KEY,
@@ -17,12 +18,20 @@ CREATE TABLE IF NOT EXISTS tickers (
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS portfolio (
-    symbol VARCHAR PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS portfolios (
+    id BIGINT DEFAULT nextval('portfolios_seq') PRIMARY KEY,
+    name VARCHAR UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS positions (
+    portfolio_id BIGINT NOT NULL,
+    symbol VARCHAR NOT NULL,
     shares DOUBLE NOT NULL,
     cost_basis DOUBLE,
     account VARCHAR,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (portfolio_id, symbol)
 );
 
 CREATE TABLE IF NOT EXISTS watchlist (
@@ -125,12 +134,47 @@ def _ensure_dirs() -> None:
     RAW_EMAILS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+LEGACY_PORTFOLIO_TABLE = "portfolio"
+DEFAULT_PORTFOLIO_NAME = "Sample Portfolio"
+
+
+def _migrate_legacy_portfolio(con: duckdb.DuckDBPyConnection) -> None:
+    """One-shot migration: copy rows from the old flat `portfolio` table into
+    `positions` under a default-named portfolio, then drop the legacy table.
+
+    Idempotent: no-op once the legacy table is gone.
+    """
+    row = con.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = ?",
+        [LEGACY_PORTFOLIO_TABLE],
+    ).fetchone()
+    if not row:
+        return
+    con.execute(
+        "INSERT INTO portfolios (name) VALUES (?) ON CONFLICT (name) DO NOTHING",
+        [DEFAULT_PORTFOLIO_NAME],
+    )
+    pf_id = con.execute(
+        "SELECT id FROM portfolios WHERE name = ?", [DEFAULT_PORTFOLIO_NAME]
+    ).fetchone()[0]
+    con.execute(
+        """
+        INSERT INTO positions (portfolio_id, symbol, shares, cost_basis, account, updated_at)
+        SELECT ?, symbol, shares, cost_basis, account, updated_at FROM portfolio
+        ON CONFLICT (portfolio_id, symbol) DO NOTHING
+        """,
+        [pf_id],
+    )
+    con.execute(f"DROP TABLE {LEGACY_PORTFOLIO_TABLE}")
+
+
 def init_db() -> None:
     """Create the DB file + schema if missing. Safe to call repeatedly."""
     _ensure_dirs()
     con = duckdb.connect(str(DB_PATH))
     try:
         con.execute(SCHEMA)
+        _migrate_legacy_portfolio(con)
     finally:
         con.close()
 
@@ -145,6 +189,7 @@ def connect(read_only: bool = False) -> Iterator[duckdb.DuckDBPyConnection]:
     try:
         if not read_only:
             con.execute(SCHEMA)
+            _migrate_legacy_portfolio(con)
         yield con
     finally:
         con.close()
