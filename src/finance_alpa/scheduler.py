@@ -32,6 +32,7 @@ from .ingest import fmp as fmp_ingest
 from .ingest import finnhub_news as finnhub_ingest
 from .ingest import sa_rss as rss_ingest
 from .ingest import yfinance_quotes as yfinance_ingest
+from .portfolio import seed_from_config_if_empty
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,10 @@ def start_background_scheduler() -> BackgroundScheduler:
         if _anchor_con is None:
             _anchor_con = duckdb.connect(str(DB_PATH))
             atexit.register(_close_anchor)
+        try:
+            seed_from_config_if_empty()
+        except Exception:
+            logger.exception("First-run portfolio seed failed — continuing")
         sched = BackgroundScheduler(timezone=TIMEZONE)
         _add_jobs(sched)
         sched.add_listener(_on_job_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)

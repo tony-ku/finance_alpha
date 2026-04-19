@@ -9,7 +9,7 @@ import streamlit as st
 from finance_alpa.screeners.rank import rank
 from finance_alpa.ui._theme import bootstrap
 
-bootstrap()
+bootstrap("Screener · finance_alpa")
 st.title("Screener")
 
 with st.sidebar:

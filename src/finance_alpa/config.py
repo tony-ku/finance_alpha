@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_PORTFOLIO_NAME = "Sample Portfolio"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -90,17 +92,41 @@ class AlertRule(BaseModel):
     direction: str = "any"
 
 
+class Portfolio(BaseModel):
+    name: str
+    positions: list[Position] = Field(default_factory=list)
+
+
 class AppConfig(BaseModel):
     universe: Universe = Field(default_factory=Universe)
-    portfolio: list[Position] = Field(default_factory=list)
+    portfolios: list[Portfolio] = Field(default_factory=list)
     sa_rss_feeds: list[Feed] = Field(default_factory=list)
     alerts: list[AlertRule] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_portfolio_key(cls, data):
+        """Accept the old flat `portfolio: [ ... ]` form by wrapping it in a
+        single "Sample Portfolio" under the new `portfolios:` key."""
+        if isinstance(data, dict) and "portfolio" in data and "portfolios" not in data:
+            data = dict(data)
+            data["portfolios"] = [
+                {"name": DEFAULT_PORTFOLIO_NAME, "positions": data.pop("portfolio") or []}
+            ]
+        return data
+
+    @property
+    def all_positions(self) -> list[Position]:
+        out: list[Position] = []
+        for pf in self.portfolios:
+            out.extend(pf.positions)
+        return out
 
     def all_symbols(self) -> list[str]:
         seen: dict[str, None] = {}
         for s in self.universe.watchlist:
             seen[s] = None
-        for p in self.portfolio:
+        for p in self.all_positions:
             seen[p.symbol] = None
         return list(seen.keys())
 

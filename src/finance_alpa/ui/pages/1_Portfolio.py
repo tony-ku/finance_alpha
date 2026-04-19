@@ -1,4 +1,4 @@
-"""Portfolio page — positions (DB-backed), latest prices, P/L, CSV import."""
+"""Portfolio page — multi-portfolio positions, prices, P/L, CSV import."""
 from __future__ import annotations
 
 import pandas as pd
@@ -11,28 +11,125 @@ from finance_alpa.ingest.broker_csv import (
     parse_positions,
     read_csv,
 )
+from finance_alpa.ingest.yfinance_quotes import UPSERT_SQL as QUOTES_UPSERT_SQL
+from finance_alpa.ingest.yfinance_quotes import fetch_symbol as fetch_quotes_for_symbol
 from finance_alpa.portfolio import (
     clear_positions,
+    create_portfolio,
+    delete_portfolio,
+    get_portfolio_by_name,
     get_positions,
+    list_portfolios,
+    rename_portfolio,
+    seed_from_config_if_empty,
     sync_from_config,
     upsert_positions,
 )
 from finance_alpa.ui._theme import bootstrap
 
-bootstrap()
+bootstrap("Portfolio · finance_alpa")
 st.title("Portfolio")
+
+
+# ---------- Portfolio selector ----------------------------------------
+
+# Ensure at least one portfolio exists so the page has something to show.
+seed_from_config_if_empty()
+portfolios = list_portfolios()
+if not portfolios:
+    # No config.yaml portfolios either — bootstrap an empty default.
+    create_portfolio("My Portfolio")
+    portfolios = list_portfolios()
+
+names = [p.name for p in portfolios]
+selected_name = st.session_state.get("pf_selected_name")
+if selected_name not in names:
+    selected_name = names[0]
+
+sel_col, new_col, rn_col, del_col = st.columns([3, 1, 1, 1])
+with sel_col:
+    selected_name = st.selectbox(
+        "Portfolio", names, index=names.index(selected_name), key="pf_selector"
+    )
+    st.session_state["pf_selected_name"] = selected_name
+selected = next(p for p in portfolios if p.name == selected_name)
+
+with new_col:
+    st.write("")  # align with selectbox
+    if st.button("New", use_container_width=True):
+        st.session_state["pf_show_new"] = True
+with rn_col:
+    st.write("")
+    if st.button("Rename", use_container_width=True):
+        st.session_state["pf_show_rename"] = True
+with del_col:
+    st.write("")
+    if st.button("Delete", use_container_width=True, type="secondary"):
+        st.session_state["pf_show_delete"] = True
+
+if st.session_state.get("pf_show_new"):
+    with st.form("pf_new_form", clear_on_submit=True):
+        new_name = st.text_input("Portfolio name")
+        c1, c2 = st.columns(2)
+        if c1.form_submit_button("Create", type="primary"):
+            if not new_name.strip():
+                st.error("Name cannot be empty.")
+            elif get_portfolio_by_name(new_name.strip()):
+                st.error(f"A portfolio named {new_name!r} already exists.")
+            else:
+                p = create_portfolio(new_name)
+                st.session_state["pf_selected_name"] = p.name
+                st.session_state.pop("pf_show_new", None)
+                st.rerun()
+        if c2.form_submit_button("Cancel"):
+            st.session_state.pop("pf_show_new", None)
+            st.rerun()
+
+if st.session_state.get("pf_show_rename"):
+    with st.form("pf_rename_form", clear_on_submit=True):
+        new_name = st.text_input("New name", value=selected.name)
+        c1, c2 = st.columns(2)
+        if c1.form_submit_button("Save", type="primary"):
+            stripped = new_name.strip()
+            if not stripped:
+                st.error("Name cannot be empty.")
+            elif stripped != selected.name and get_portfolio_by_name(stripped):
+                st.error(f"A portfolio named {stripped!r} already exists.")
+            else:
+                rename_portfolio(selected.id, stripped)
+                st.session_state["pf_selected_name"] = stripped
+                st.session_state.pop("pf_show_rename", None)
+                st.rerun()
+        if c2.form_submit_button("Cancel"):
+            st.session_state.pop("pf_show_rename", None)
+            st.rerun()
+
+if st.session_state.get("pf_show_delete"):
+    st.warning(
+        f"Delete portfolio {selected.name!r} and all its positions? "
+        "This cannot be undone."
+    )
+    c1, c2 = st.columns(2)
+    if c1.button("Confirm delete", type="primary", key="pf_del_confirm"):
+        delete_portfolio(selected.id)
+        st.session_state.pop("pf_selected_name", None)
+        st.session_state.pop("pf_show_delete", None)
+        st.rerun()
+    if c2.button("Cancel", key="pf_del_cancel"):
+        st.session_state.pop("pf_show_delete", None)
+        st.rerun()
 
 
 # ---------- Import expander --------------------------------------------
 
-with st.expander("Add / edit positions", expanded=False):
+with st.expander(f"Add / edit positions in {selected.name!r}", expanded=False):
     tab_csv, tab_seed = st.tabs(["Import broker CSV", "Seed from config.yaml"])
 
     with tab_csv:
         st.caption(
             "Upload a broker-exported CSV. Auto-detect works for Schwab, "
             "Fidelity, Vanguard, IBKR Flex, and Robinhood formats. "
-            "Review the column mapping and preview before committing."
+            "Positions will be imported into the selected portfolio."
         )
         uploaded = st.file_uploader(
             "CSV file", type=["csv"], accept_multiple_files=False, key="pf_csv"
@@ -79,7 +176,7 @@ with st.expander("Add / edit positions", expanded=False):
                     ["upsert", "replace"],
                     format_func=lambda v: {
                         "upsert": "Upsert — update existing symbols, keep others",
-                        "replace": "Replace — wipe existing positions first",
+                        "replace": "Replace — wipe existing positions in this portfolio first",
                     }[v],
                     horizontal=False,
                     key="pf_mode",
@@ -98,29 +195,33 @@ with st.expander("Add / edit positions", expanded=False):
                 )
 
                 if st.button("Preview parsed rows", key="pf_preview"):
-                    positions, warns = parse_positions(df_raw, mapping, cost_is_total)
-                    st.session_state["pf_preview_rows"] = positions
+                    positions_parsed, warns = parse_positions(df_raw, mapping, cost_is_total)
+                    st.session_state["pf_preview_rows"] = positions_parsed
                     st.session_state["pf_preview_warns"] = warns
                     st.session_state["pf_preview_mode"] = mode
 
                 if st.session_state.get("pf_preview_rows") is not None:
-                    positions = st.session_state["pf_preview_rows"]
+                    positions_parsed = st.session_state["pf_preview_rows"]
                     warns = st.session_state["pf_preview_warns"]
-                    preview_df = pd.DataFrame([p.model_dump() for p in positions])
-                    st.markdown(f"**{len(positions)} positions ready to import.**")
+                    preview_df = pd.DataFrame([p.model_dump() for p in positions_parsed])
+                    st.markdown(f"**{len(positions_parsed)} positions ready to import into {selected.name!r}.**")
                     if not preview_df.empty:
                         st.dataframe(
                             preview_df, use_container_width=True, hide_index=True
                         )
                     for w in warns:
                         st.caption(f"⚠ {w}")
-                    if positions and st.button(
-                        f"Commit {len(positions)} positions", type="primary", key="pf_commit"
+                    if positions_parsed and st.button(
+                        f"Commit {len(positions_parsed)} positions", type="primary", key="pf_commit"
                     ):
-                        n = upsert_positions(positions, mode=st.session_state["pf_preview_mode"])
+                        n = upsert_positions(
+                            selected.id,
+                            positions_parsed,
+                            mode=st.session_state["pf_preview_mode"],
+                        )
                         st.success(
-                            f"Imported {n} positions (mode="
-                            f"{st.session_state['pf_preview_mode']})."
+                            f"Imported {n} positions into {selected.name!r} "
+                            f"(mode={st.session_state['pf_preview_mode']})."
                         )
                         for key in ("pf_preview_rows", "pf_preview_warns", "pf_preview_mode"):
                             st.session_state.pop(key, None)
@@ -128,43 +229,71 @@ with st.expander("Add / edit positions", expanded=False):
 
     with tab_seed:
         st.caption(
-            "Copies the `portfolio:` block from `config.yaml` into the DB, "
-            "replacing any existing positions."
+            "Replace every portfolio in the DB with those listed in `config.yaml`. "
+            "Use this to reset back to the sample data."
         )
-        if st.button("Seed from config.yaml"):
+        if st.button("Seed all portfolios from config.yaml"):
             n = sync_from_config()
             st.success(f"Seeded {n} positions from config.yaml.")
+            st.session_state.pop("pf_selected_name", None)
             st.rerun()
 
     st.divider()
-    if st.button("Clear all positions", type="secondary"):
-        n = clear_positions()
-        st.success(f"Cleared {n} positions.")
+    if st.button(f"Clear positions in {selected.name!r}", type="secondary"):
+        n = clear_positions(selected.id)
+        st.success(f"Cleared {n} positions from {selected.name!r}.")
         st.rerun()
 
 
 # ---------- Main portfolio view ----------------------------------------
 
-positions_db = get_positions()
+positions_db = get_positions(selected.id)
 if not positions_db:
     st.info(
-        "No positions in the DB yet. Use the expander above to import a broker "
-        "CSV or seed from `config.yaml`."
+        f"No positions in {selected.name!r} yet. Use the expander above to "
+        "import a broker CSV."
     )
     st.stop()
 
 positions = pd.DataFrame([p.__dict__ for p in positions_db])
 
-with connect() as con:
-    latest = con.execute(
-        """
-        SELECT symbol, close AS last_price, date AS as_of
-        FROM quotes_daily
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
-        """
-    ).fetchdf()
+
+def _load_latest_prices() -> pd.DataFrame:
+    with connect() as con:
+        return con.execute(
+            """
+            SELECT symbol, close AS last_price, date AS as_of
+            FROM quotes_daily
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) = 1
+            """
+        ).fetchdf()
+
+
+latest = _load_latest_prices()
+uncovered = sorted(set(positions["symbol"]) - set(latest["symbol"]))
+# On first load the scheduler's yfinance pass may not have populated quotes yet.
+# Fetch synchronously for held symbols so the page never renders empty prices.
+# Gate with session_state so a persistently-failing symbol doesn't re-fetch on every rerender.
+_FETCH_FLAG = "pf_autofetch_attempted"
+if uncovered and not st.session_state.get(_FETCH_FLAG):
+    st.session_state[_FETCH_FLAG] = True
+    with st.spinner(f"Loading prices for {len(uncovered)} symbol(s)…"):
+        with connect() as con:
+            for sym in uncovered:
+                try:
+                    rows = fetch_quotes_for_symbol(sym)
+                except Exception:
+                    continue
+                if rows:
+                    con.executemany(QUOTES_UPSERT_SQL, rows)
+    latest = _load_latest_prices()
 
 df = positions.merge(latest, on="symbol", how="left")
+# Format as_of as string before the totals row (None) is concatenated — otherwise
+# the column becomes object dtype and Streamlit renders epoch nanoseconds.
+df["as_of"] = df["as_of"].apply(
+    lambda d: d.strftime("%Y-%m-%d") if pd.notna(d) else None
+)
 cost_basis = df["cost_basis"].fillna(0)
 df["market_value"] = df["shares"] * df["last_price"]
 df["cost"] = df["shares"] * cost_basis
@@ -186,6 +315,7 @@ h4.metric(
     f"{total_pl_pct:+.2f}%" if total_pl_pct is not None else None,
 )
 
+display_df = df.drop(columns=["portfolio_id"], errors="ignore")
 totals_row = {
     "symbol": "TOTAL",
     "shares": None,
@@ -198,19 +328,23 @@ totals_row = {
     "pl_abs": total_pl,
     "pl_pct": total_pl_pct,
 }
-display = pd.concat([df, pd.DataFrame([totals_row])], ignore_index=True)
+display = pd.concat([display_df, pd.DataFrame([totals_row])], ignore_index=True)
 
 st.dataframe(
     display,
     use_container_width=True,
     hide_index=True,
     column_config={
-        "last_price": st.column_config.NumberColumn(format="$%.2f"),
-        "cost_basis": st.column_config.NumberColumn(format="$%.2f"),
-        "market_value": st.column_config.NumberColumn(format="$%.2f"),
-        "cost": st.column_config.NumberColumn(format="$%.2f"),
-        "pl_abs": st.column_config.NumberColumn(format="$%.2f"),
-        "pl_pct": st.column_config.NumberColumn(format="%.2f%%"),
+        "symbol": st.column_config.TextColumn("Symbol"),
+        "shares": st.column_config.NumberColumn("Shares"),
+        "cost_basis": st.column_config.NumberColumn("Cost Basis", format="$%.2f"),
+        "account": st.column_config.TextColumn("Account"),
+        "last_price": st.column_config.NumberColumn("Last Price", format="$%.2f"),
+        "as_of": st.column_config.TextColumn("As Of"),
+        "market_value": st.column_config.NumberColumn("Market Value", format="$%.2f"),
+        "cost": st.column_config.NumberColumn("Total Cost", format="$%.2f"),
+        "pl_abs": st.column_config.NumberColumn("P/L ($)", format="$%.2f"),
+        "pl_pct": st.column_config.NumberColumn("P/L (%)", format="%.2f%%"),
     },
 )
 

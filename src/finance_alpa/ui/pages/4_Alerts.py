@@ -12,7 +12,7 @@ from finance_alpa.config import load_app_config
 from finance_alpa.db import connect
 from finance_alpa.ui._theme import bootstrap
 
-bootstrap()
+bootstrap("Alerts · finance_alpa")
 st.title("Alerts")
 
 cfg = load_app_config()

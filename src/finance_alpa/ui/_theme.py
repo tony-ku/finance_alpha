@@ -64,12 +64,20 @@ def apply_theme() -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
-def bootstrap() -> None:
+def bootstrap(page_title: str = "finance_alpa") -> None:
     """Call at the top of every Streamlit page.
 
-    Applies the shared CSS theme and starts the embedded background scheduler
-    (idempotent — safe to call on every page re-render).
+    Sets page config (must be the first Streamlit call — so this runs before
+    any other st.* call on the page), applies the shared CSS theme, and starts
+    the embedded background scheduler (idempotent — safe to call on every
+    page re-render).
     """
+    try:
+        st.set_page_config(page_title=page_title, layout="wide")
+    except st.errors.StreamlitAPIException:
+        # set_page_config can only be called once per run; ignore if a page
+        # already called it directly.
+        pass
     apply_theme()
     # Lazy import: scheduler pulls APScheduler + ingest modules; keep it off the
     # import path for non-UI callers.

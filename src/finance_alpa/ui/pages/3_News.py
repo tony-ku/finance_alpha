@@ -8,7 +8,7 @@ import streamlit as st
 from finance_alpa.db import connect
 from finance_alpa.ui._theme import bootstrap, safe_link_url
 
-bootstrap()
+bootstrap("News · finance_alpa")
 st.title("News")
 
 top = st.columns([1, 2, 1, 1])
