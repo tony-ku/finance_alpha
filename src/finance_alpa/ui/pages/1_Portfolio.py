@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from finance_alpa.config import load_app_config
 from finance_alpa.db import connect
 from finance_alpa.ingest.broker_csv import (
     ColumnMapping,
@@ -22,7 +23,6 @@ from finance_alpa.portfolio import (
     list_portfolios,
     rename_portfolio,
     seed_from_config_if_empty,
-    sync_from_config,
     upsert_positions,
 )
 from finance_alpa.ui._theme import bootstrap
@@ -229,14 +229,50 @@ with st.expander(f"Add / edit positions in {selected.name!r}", expanded=False):
 
     with tab_seed:
         st.caption(
-            "Replace every portfolio in the DB with those listed in `config.yaml`. "
-            "Use this to reset back to the sample data."
+            f"Copy positions from a portfolio in `config.yaml` into "
+            f"{selected.name!r}. Other portfolios in the DB are not touched."
         )
-        if st.button("Seed all portfolios from config.yaml"):
-            n = sync_from_config()
-            st.success(f"Seeded {n} positions from config.yaml.")
-            st.session_state.pop("pf_selected_name", None)
-            st.rerun()
+        cfg = load_app_config()
+        if not cfg.portfolios:
+            st.info("No portfolios found in `config.yaml`.")
+        else:
+            source_names = [pf.name for pf in cfg.portfolios]
+            default_idx = (
+                source_names.index(selected.name)
+                if selected.name in source_names
+                else 0
+            )
+            source_name = st.selectbox(
+                "Source portfolio (from config.yaml)",
+                source_names,
+                index=default_idx,
+                key="pf_seed_source",
+            )
+            source = next(pf for pf in cfg.portfolios if pf.name == source_name)
+            seed_mode = st.radio(
+                "Mode",
+                ["upsert", "replace"],
+                format_func=lambda v: {
+                    "upsert": "Upsert — merge into existing positions",
+                    "replace": f"Replace — wipe {selected.name!r} first",
+                }[v],
+                key="pf_seed_mode",
+            )
+            st.caption(
+                f"{len(source.positions)} position(s) in "
+                f"{source_name!r} will be copied into {selected.name!r}."
+            )
+            if st.button(
+                f"Seed {selected.name!r} from {source_name!r}",
+                type="primary",
+                key="pf_seed_go",
+            ):
+                n = upsert_positions(selected.id, list(source.positions), mode=seed_mode)
+                st.success(
+                    f"Seeded {n} positions into {selected.name!r} "
+                    f"(mode={seed_mode})."
+                )
+                st.rerun()
 
     st.divider()
     if st.button(f"Clear positions in {selected.name!r}", type="secondary"):
