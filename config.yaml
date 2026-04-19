@@ -1,0 +1,56 @@
+# finance_alpa — user-editable configuration.
+# Edit watchlist and portfolio to match your holdings, then reload the UI.
+
+universe:
+  watchlist:
+    - SPY
+    - QQQ
+    - AAPL
+    - MSFT
+    - NVDA
+
+portfolio: []
+# Example:
+# portfolio:
+#   - symbol: AAPL
+#     shares: 10
+#     cost_basis: 150.00
+#     account: Taxable
+#   - symbol: MSFT
+#     shares: 5
+#     cost_basis: 320.00
+#     account: IRA
+
+sa_rss_feeds:
+  - name: SA Latest Articles
+    url: https://seekingalpha.com/feed.xml
+  - name: SA Market Currents
+    url: https://seekingalpha.com/market_currents.xml
+
+alerts:
+  # Fires when a watchlist symbol closes with a >=5% daily move in either direction.
+  - name: Big daily move
+    type: price_change
+    scope: watchlist
+    threshold_pct: 5.0
+    direction: any
+    notify: [desktop]
+
+  # Fires 5 days before earnings for any symbol in watchlist or portfolio.
+  # Requires FMP ingest to populate earnings_calendar.
+  - name: Earnings in 5 days
+    type: upcoming_earnings
+    scope: all
+    days: 5
+    notify: [desktop]
+
+  # Uncomment and add symbols to portfolio to enable these (require API keys):
+  # - name: FMP rating change on holdings
+  #   type: fmp_rating_change
+  #   scope: portfolio
+  #   notify: [desktop, email]
+  # - name: Reco upgrade
+  #   type: reco_change
+  #   scope: all
+  #   direction: up
+  #   notify: [desktop]
