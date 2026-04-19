@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import streamlit as st
 
 from finance_alpa.db import connect
-from finance_alpa.ui._theme import bootstrap
+from finance_alpa.ui._theme import bootstrap, safe_link_url
 
 bootstrap()
 st.title("News")
@@ -94,7 +94,9 @@ if c_right.button("Mark all shown as read", use_container_width=True):
 for _, row in df.iterrows():
     with st.container(border=True):
         head, right = st.columns([6, 1])
-        head.markdown(f"**[{row['title']}]({row['url']})**")
+        url = safe_link_url(row["url"])
+        title = str(row["title"])
+        head.markdown(f"**[{title}]({url})**" if url else f"**{title}**")
         bits = [str(row["source"]), str(row["published_at"])]
         if row.get("author"):
             bits.append(str(row["author"]))

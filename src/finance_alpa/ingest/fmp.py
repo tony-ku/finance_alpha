@@ -42,7 +42,9 @@ def _get_json(client: httpx.Client, path: str, **params: Any) -> list | dict | N
         logger.warning("FMP rate-limited at %s — stopping this run", path)
         return None
     if r.status_code >= 400:
-        logger.warning("FMP %s returned %d: %s", path, r.status_code, r.text[:200])
+        # Intentionally do not log r.text — FMP error bodies may echo the
+        # request URL including the apikey query parameter.
+        logger.warning("FMP %s returned %d", path, r.status_code)
         return None
     try:
         return r.json()

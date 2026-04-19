@@ -10,7 +10,7 @@ import yfinance as yf
 
 from finance_alpa.config import load_app_config
 from finance_alpa.db import connect, init_db
-from finance_alpa.ui._theme import bootstrap
+from finance_alpa.ui._theme import bootstrap, safe_link_url
 
 st.set_page_config(page_title="finance_alpa", layout="wide")
 init_db()
@@ -304,8 +304,9 @@ if current_sym:
         if snap.get("summary"):
             with st.expander("Company overview"):
                 st.write(snap["summary"])
-                if snap.get("website"):
-                    st.markdown(f"[{snap['website']}]({snap['website']})")
+                site = safe_link_url(snap.get("website"))
+                if site:
+                    st.markdown(f"[{site}]({site})")
 
         with connect(read_only=True) as con:
             related = con.execute(
@@ -324,10 +325,10 @@ if current_sym:
                 meta_bits = [str(r["source"]), str(r["published_at"])]
                 if r.get("author"):
                     meta_bits.append(str(r["author"]))
-                st.markdown(
-                    f"- [{r['title']}]({r['url']})  \n"
-                    f"  _{' · '.join(meta_bits)}_"
-                )
+                url = safe_link_url(r["url"])
+                title = str(r["title"])
+                line = f"- [{title}]({url})" if url else f"- {title}"
+                st.markdown(line + f"  \n  _{' · '.join(meta_bits)}_")
 
 st.divider()
 

@@ -45,6 +45,21 @@ _CSS = """
 """
 
 
+def safe_link_url(url: str | None) -> str | None:
+    """Return ``url`` if it's a plain http(s) URL, else None.
+
+    Defense against feed/API-sourced markdown links carrying ``javascript:``,
+    ``data:`` or other non-navigational schemes that Streamlit's markdown
+    renderer would otherwise pass through unchanged.
+    """
+    if not url or not isinstance(url, str):
+        return None
+    stripped = url.strip()
+    if stripped.lower().startswith(("http://", "https://")):
+        return stripped
+    return None
+
+
 def apply_theme() -> None:
     st.markdown(_CSS, unsafe_allow_html=True)
 
