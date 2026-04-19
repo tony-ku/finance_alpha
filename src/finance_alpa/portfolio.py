@@ -28,7 +28,7 @@ class DbPosition:
 
 
 def get_positions() -> list[DbPosition]:
-    with connect(read_only=True) as con:
+    with connect() as con:
         rows = con.execute(
             "SELECT symbol, shares, cost_basis, account FROM portfolio ORDER BY symbol"
         ).fetchall()

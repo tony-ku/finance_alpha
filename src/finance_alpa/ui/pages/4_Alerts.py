@@ -45,7 +45,7 @@ st.divider()
 
 # --- Fired alerts log ---------------------------------------------------
 st.subheader("Recent alerts")
-with connect(read_only=True) as con:
+with connect() as con:
     df = con.execute(
         """
         SELECT id, fired_at, rule_name, symbol, payload

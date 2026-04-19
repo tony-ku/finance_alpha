@@ -58,7 +58,7 @@ if hide_read:
     news_query += " AND NOT read"
 news_query += " ORDER BY published_at DESC NULLS LAST LIMIT 500"
 
-with connect(read_only=True) as con:
+with connect() as con:
     df_articles = con.execute(query, params).fetchdf()
     df_news = con.execute(news_query, news_params).fetchdf()
 

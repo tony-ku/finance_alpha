@@ -308,7 +308,7 @@ if current_sym:
                 if site:
                     st.markdown(f"[{site}]({site})")
 
-        with connect(read_only=True) as con:
+        with connect() as con:
             related = con.execute(
                 """
                 SELECT source, published_at, title, author, url
@@ -334,7 +334,7 @@ st.divider()
 
 # --- Local app status ---------------------------------------------------
 cfg = load_app_config()
-with connect(read_only=True) as con:
+with connect() as con:
     n_quotes = con.execute("SELECT COUNT(*) FROM quotes_daily").fetchone()[0]
     n_articles = con.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
     n_alerts = con.execute("SELECT COUNT(*) FROM alerts_log").fetchone()[0]
