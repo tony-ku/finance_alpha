@@ -155,7 +155,7 @@ if not positions_db:
 
 positions = pd.DataFrame([p.__dict__ for p in positions_db])
 
-with connect(read_only=True) as con:
+with connect() as con:
     latest = con.execute(
         """
         SELECT symbol, close AS last_price, date AS as_of

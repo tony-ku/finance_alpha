@@ -11,11 +11,13 @@ opens the DB read-only, so multiple readers + one writer is safe.
 """
 from __future__ import annotations
 
+import atexit
 import logging
 import threading
 from datetime import datetime, timezone
 from typing import Any
 
+import duckdb
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import BaseScheduler
@@ -24,6 +26,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .alerts.rules import evaluate_all
+from .config import DB_PATH
 from .db import init_db
 from .ingest import fmp as fmp_ingest
 from .ingest import finnhub_news as finnhub_ingest
@@ -38,6 +41,21 @@ _bg_scheduler: BackgroundScheduler | None = None
 _bg_lock = threading.Lock()
 _bg_startup_started = False
 _last_runs: dict[str, dict[str, Any]] = {}
+# Long-lived write connection that anchors the DuckDB instance in RW mode for
+# the process lifetime. Without this, a UI page that opens a read-only
+# connection first can lock the instance into RO mode, causing subsequent
+# ingest-thread write connections to fail ("Cannot switch from read-only…").
+_anchor_con: duckdb.DuckDBPyConnection | None = None
+
+
+def _close_anchor() -> None:
+    global _anchor_con
+    if _anchor_con is not None:
+        try:
+            _anchor_con.close()
+        except Exception:
+            pass
+        _anchor_con = None
 
 
 def _on_job_event(event) -> None:
@@ -107,11 +125,14 @@ def start_background_scheduler() -> BackgroundScheduler:
 
     The startup pass runs on a daemon thread so UI rendering is never blocked.
     """
-    global _bg_scheduler, _bg_startup_started
+    global _bg_scheduler, _bg_startup_started, _anchor_con
     with _bg_lock:
         if _bg_scheduler is not None and _bg_scheduler.running:
             return _bg_scheduler
         init_db()
+        if _anchor_con is None:
+            _anchor_con = duckdb.connect(str(DB_PATH))
+            atexit.register(_close_anchor)
         sched = BackgroundScheduler(timezone=TIMEZONE)
         _add_jobs(sched)
         sched.add_listener(_on_job_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)

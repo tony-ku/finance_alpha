@@ -5,3 +5,8 @@ backgroundColor = "#13111c"
 secondaryBackgroundColor = "#1e1a2c"
 textColor = "#e0dded"
 font = "sans serif"
+
+[client]
+# Hide the "Deploy" button and other developer-facing toolbar items — this app
+# runs locally and there's nothing to deploy.
+toolbarMode = "viewer"

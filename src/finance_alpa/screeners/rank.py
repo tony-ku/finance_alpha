@@ -81,7 +81,7 @@ def load_signals(symbols: list[str] | None = None) -> pd.DataFrame:
         symbols = tracked_symbols()
     if not symbols:
         return pd.DataFrame()
-    with connect(read_only=True) as con:
+    with connect() as con:
         return con.execute(SIGNAL_SQL, [symbols]).fetchdf()
 
 
